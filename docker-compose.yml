@@ -1,0 +1,21 @@
+services:
+  gateway:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - gateway-data:/data
+    ports:
+      - "127.0.0.1:8070:8070"   # local access only; public traffic comes through the tunnel
+
+  cloudflared:
+    image: cloudflare/cloudflared:2025.4.0
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - gateway
+
+volumes:
+  gateway-data:
