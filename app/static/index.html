@@ -71,6 +71,19 @@ header.top .wrap { display: flex; flex-wrap: wrap; align-items: center; justify-
 .status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 
+/* Theme toggle */
+.theme-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  font: inherit; font-size: 13px; font-weight: 500; color: var(--muted); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; cursor: pointer;
+}
+.theme-toggle:hover { border-color: var(--accent); color: var(--ink); }
+.theme-toggle svg { flex: none; width: 16px; height: 16px; }
+.theme-toggle .moon { display: none; }
+.theme-toggle .sun { display: inline; }
+:root[data-theme="dark"] .theme-toggle .moon { display: inline; }
+:root[data-theme="dark"] .theme-toggle .sun { display: none; }
+
 /* Hero */
 .hero { padding-block: 44px 28px; display: grid; gap: 20px; }
 .hero h1 {
@@ -246,6 +259,11 @@ footer .wrap { padding-block: 20px; color: var(--muted); font-size: 13px; displa
       Quickhunt LLM Gateway
     </div>
     <div class="status" id="status"><span class="dot" aria-hidden="true"></span><span id="status-text">Checking models…</span></div>
+    <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Toggle dark mode">
+      <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+      <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      <span id="theme-label">Dark</span>
+    </button>
   </div>
 </header>
 
@@ -499,6 +517,30 @@ const CATALOG = /*__CATALOG__*/null;
 
   const $ = id => document.getElementById(id);
   $("base-url").textContent = BASE;
+
+  // Theme toggle
+  (function () {
+    const saved = localStorage.getItem("theme");
+    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const isDark = saved ? saved === "dark" : prefersDark;
+    const root = document.documentElement;
+    if (isDark) root.setAttribute("data-theme", "dark");
+    else root.setAttribute("data-theme", "light");
+    const btn = $("theme-toggle");
+    const label = $("theme-label");
+    function updateLabel() {
+      const dark = root.getAttribute("data-theme") === "dark";
+      label.textContent = dark ? "Light" : "Dark";
+      btn.setAttribute("aria-label", (dark ? "Switch to light" : "Switch to dark") + " mode");
+    }
+    updateLabel();
+    btn.addEventListener("click", () => {
+      const dark = root.getAttribute("data-theme") === "dark";
+      if (dark) { root.setAttribute("data-theme", "light"); localStorage.setItem("theme", "light"); }
+      else { root.setAttribute("data-theme", "dark"); localStorage.setItem("theme", "dark"); }
+      updateLabel();
+    });
+  })();
   $("generic-base").textContent = BASE + "/v1";
 
   // Header status
