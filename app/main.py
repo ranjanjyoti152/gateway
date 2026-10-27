@@ -131,7 +131,7 @@ async def refresh_models():
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request):
     body = await _json(request)
-    body["model"] = models.resolve(body.get("model"))
+    request.state.model = body["model"] = models.resolve(body.get("model"))
     body = core.ensure_stream_usage(core.prepare_chat(body))
     if body["model"].startswith("google/") and body.get("tools"):
         body["tools"] = anthropic._clean_schema(body["tools"])
@@ -143,7 +143,7 @@ async def chat_completions(request: Request):
 @app.post("/v1/responses")
 async def responses_api(request: Request):
     body = await _json(request)
-    model = models.resolve(body.get("model"))
+    request.state.model = model = models.resolve(body.get("model"))
     if model.startswith("openai/"):
         # LiveKit serves the Responses API natively for OpenAI models.
         body["model"] = model
@@ -167,6 +167,18 @@ async def messages(request: Request):
         chat.update(stream=True, stream_options={"include_usage": True})
         return _sse(anthropic.stream_messages(await core.open_stream("/chat/completions", chat), model, chat["model"]))
     return anthropic.from_chat_response(await core.post_json("/chat/completions", chat), model)
+
+
+@app.get("/v1/embeddings/models")
+async def embedding_models():
+    # Some VS Code extensions (Kilo, Roo) look for embedding models; LiveKit Inference has none.
+    return {"object": "list", "data": []}
+
+
+@app.post("/v1/embeddings")
+async def embeddings():
+    return _error("/v1/embeddings", 404, "Embeddings are not available: LiveKit Inference serves chat models only. "
+                  "Turn off codebase indexing in your editor extension, or point it at a separate embeddings provider.")
 
 
 @app.post("/v1/messages/count_tokens")

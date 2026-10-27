@@ -63,6 +63,9 @@ def to_chat_request(body: dict) -> dict:
     for k in ("temperature", "top_p", "parallel_tool_calls"):
         if k in body:
             req[k] = body[k]
+    effort = (body.get("reasoning") or {}).get("effort") if isinstance(body.get("reasoning"), dict) else None
+    if effort:
+        req["reasoning_effort"] = effort
     tools = [t for t in body.get("tools") or [] if t.get("type") == "function"]
     if tools:
         req["tools"] = [{"type": "function", "function": {"name": t["name"], "description": t.get("description", ""),

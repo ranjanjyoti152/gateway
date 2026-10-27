@@ -80,23 +80,64 @@ def _headers() -> dict:
 _LIMIT_KEYS = ("max_tokens", "max_completion_tokens", "max_output_tokens")
 
 
-def _without_token_limit(body: dict, status: int, text: str) -> dict | None:
-    """Clients like Claude Code ask for 32k+ output tokens; drop the limit if a model rejects it."""
-    if status != 400 or "token" not in text.lower() or not any(k in body for k in _LIMIT_KEYS):
+def _effort_of(body: dict):
+    if "reasoning_effort" in body:
+        return body["reasoning_effort"]
+    r = body.get("reasoning")
+    return r.get("effort") if isinstance(r, dict) else None
+
+
+def _with_effort(body: dict, effort) -> dict:
+    """Set (or with effort=None, remove) the reasoning effort in chat or Responses form."""
+    body = dict(body)
+    if "reasoning_effort" in body:
+        if effort is None:
+            body.pop("reasoning_effort")
+        else:
+            body["reasoning_effort"] = effort
+    elif isinstance(body.get("reasoning"), dict):
+        r = {k: v for k, v in body["reasoning"].items() if k != "effort"}
+        if effort is not None:
+            r["effort"] = effort
+        body["reasoning"] = r
+    return body
+
+
+def _fix_rejected(body: dict, status: int, text: str) -> dict | None:
+    """Return a corrected body for parameters a model rejected, or None if nothing can be fixed.
+
+    - Clients like Claude Code ask for 32k+ output tokens; drop the limit if a model rejects it.
+    - Clients send reasoning_effort "none", which Grok 4.5+ rejects (use "minimal"), and some
+      Grok models reject the parameter entirely (drop it).
+    """
+    if status not in (400, 422):
         return None
-    log.info("upstream rejected token limit for %s, retrying without it", body.get("model"))
-    return {k: v for k, v in body.items() if k not in _LIMIT_KEYS}
+    low = text.lower()
+    effort = _effort_of(body)
+    if effort is not None and ("reasoning_effort" in low or "reasoningeffort" in low or "reasoning.effort" in low):
+        if effort == "none" and "value" in low and "not support" in low:
+            log.info("%s rejected reasoning_effort=none, retrying with minimal", body.get("model"))
+            return _with_effort(body, "minimal")
+        log.info("%s rejected reasoning_effort=%s, retrying without it", body.get("model"), effort)
+        return _with_effort(body, None)
+    if "token" in low and any(k in body for k in _LIMIT_KEYS):
+        log.info("%s rejected token limit, retrying without it", body.get("model"))
+        return {k: v for k, v in body.items() if k not in _LIMIT_KEYS}
+    return None
+
+
+_MAX_FIXES = 3
 
 
 async def post_json(path: str, body: dict, track: bool = True) -> dict:
-    for attempt in range(2):
+    for attempt in range(_MAX_FIXES + 1):
         r = await client.post(UPSTREAM_URL + path, json=body, headers=_headers())
         if r.status_code < 400:
             data = r.json()
             if track:
                 report_usage(body.get("model", ""), deployment_of(r), data.get("usage"))
             return data
-        retry = _without_token_limit(body, r.status_code, r.text) if attempt == 0 else None
+        retry = _fix_rejected(body, r.status_code, r.text) if attempt < _MAX_FIXES else None
         if retry is None:
             raise UpstreamError(r.status_code, r.text)
         body = retry
@@ -105,14 +146,14 @@ async def post_json(path: str, body: dict, track: bool = True) -> dict:
 
 async def open_stream(path: str, body: dict) -> httpx.Response:
     """Open a streaming request; raises UpstreamError before any bytes reach the client."""
-    for attempt in range(2):
+    for attempt in range(_MAX_FIXES + 1):
         req = client.build_request("POST", UPSTREAM_URL + path, json=body, headers=_headers())
         r = await client.send(req, stream=True)
         if r.status_code < 400:
             return r
         text = (await r.aread()).decode(errors="replace")
         await r.aclose()
-        retry = _without_token_limit(body, r.status_code, text) if attempt == 0 else None
+        retry = _fix_rejected(body, r.status_code, text) if attempt < _MAX_FIXES else None
         if retry is None:
             raise UpstreamError(r.status_code, text)
         body = retry

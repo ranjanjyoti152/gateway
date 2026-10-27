@@ -156,3 +156,18 @@ def test_stream_usage_extraction():
     assert core.usage_from_event('{"type":"response.completed","response":{"usage":{"input_tokens":5}}}') == {"input_tokens": 5}
     assert core.usage_from_event('{"choices":[{"delta":{"content":"hi"}}]}') is None
     assert core.ensure_stream_usage({"stream": True})["stream_options"] == {"include_usage": True}
+
+
+def test_fix_rejected_reasoning_effort():
+    body = {"model": "xai/grok-4.7", "reasoning_effort": "none", "messages": []}
+    fixed = core._fix_rejected(body, 400, '{"error":{"message":"This model does not support `reasoning_effort` value `none`."}}')
+    assert fixed["reasoning_effort"] == "minimal"
+    fixed = core._fix_rejected({**body, "reasoning_effort": "minimal"}, 400,
+                               "Model grok-4.20 does not support parameter reasoningEffort")
+    assert "reasoning_effort" not in fixed
+    resp_body = {"model": "xai/grok-4.7", "reasoning": {"effort": "none", "summary": "auto"}}
+    fixed = core._fix_rejected(resp_body, 400, "does not support `reasoning_effort` value `none`")
+    assert fixed["reasoning"] == {"effort": "minimal", "summary": "auto"}
+    assert core._fix_rejected({"model": "x", "max_tokens": 64000}, 400, "max_tokens is too large")["model"] == "x"
+    assert core._fix_rejected({"model": "x"}, 400, "something else") is None
+    assert core._fix_rejected({"model": "x", "reasoning_effort": "low"}, 500, "reasoning_effort") is None
